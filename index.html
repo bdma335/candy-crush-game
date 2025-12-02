@@ -64,6 +64,7 @@
             background: #f0f0f0;
             max-width: 100%;
             height: auto;
+            touch-action: none;
         }
         
         .controls {
@@ -149,7 +150,7 @@
         <canvas id="gameCanvas" width="480" height="480"></canvas>
         
         <div class="instructions">
-            Click on a candy, then click on an adjacent candy to swap them. Match 3 or more candies to score!
+            🖱️ Click or drag candies to swap them. Match 3+ candies to score!
         </div>
         
         <div class="controls">
@@ -178,6 +179,9 @@
         let moves = INITIAL_MOVES;
         let selectedCandy = null;
         let isAnimating = false;
+        let isDragging = false;
+        let dragStart = null;
+        let animatingCandies = [];
         
         const candyColors = [
             '#FF6B6B', // Red
@@ -221,12 +225,10 @@
         function checkMatch(row, col) {
             const candy = grid[row][col];
             
-            // Check horizontal
             if (col >= 2 && grid[row][col-1] === candy && grid[row][col-2] === candy) {
                 return true;
             }
             
-            // Check vertical
             if (row >= 2 && grid[row-1][col] === candy && grid[row-2][col] === candy) {
                 return true;
             }
@@ -245,17 +247,28 @@
                     
                     if (candy === -1) continue;
                     
+                    // Check if this candy is animating
+                    const animCandy = animatingCandies.find(a => a.row === row && a.col === col);
+                    const scale = animCandy ? animCandy.scale : 1;
+                    const alpha = animCandy ? animCandy.alpha : 1;
+                    
+                    ctx.save();
+                    ctx.globalAlpha = alpha;
+                    
                     // Draw candy background
                     ctx.fillStyle = candyColors[candy];
                     ctx.beginPath();
-                    ctx.roundRect(x + 3, y + 3, CELL_SIZE - 6, CELL_SIZE - 6, 8);
+                    const offset = (1 - scale) * CELL_SIZE / 2;
+                    ctx.roundRect(x + 3 + offset, y + 3 + offset, (CELL_SIZE - 6) * scale, (CELL_SIZE - 6) * scale, 8);
                     ctx.fill();
                     
                     // Draw candy emoji
-                    ctx.font = '35px Arial';
+                    ctx.font = `${35 * scale}px Arial`;
                     ctx.textAlign = 'center';
                     ctx.textBaseline = 'middle';
                     ctx.fillText(candyEmojis[candy], x + CELL_SIZE/2, y + CELL_SIZE/2);
+                    
+                    ctx.restore();
                     
                     // Highlight selected candy
                     if (selectedCandy && selectedCandy.row === row && selectedCandy.col === col) {
@@ -322,10 +335,52 @@
             return matches;
         }
         
-        function removeMatches(matches) {
+        async function animateCrush(matches) {
+            // Initialize animation data
+            animatingCandies = matches.map(m => ({
+                row: m.row,
+                col: m.col,
+                scale: 1,
+                alpha: 1
+            }));
+            
+            // Animate crush effect
+            const duration = 300;
+            const startTime = Date.now();
+            
+            return new Promise(resolve => {
+                function animate() {
+                    const elapsed = Date.now() - startTime;
+                    const progress = Math.min(elapsed / duration, 1);
+                    
+                    // Update animation properties
+                    animatingCandies.forEach(candy => {
+                        candy.scale = 1 - progress;
+                        candy.alpha = 1 - progress;
+                    });
+                    
+                    drawGrid();
+                    
+                    if (progress < 1) {
+                        requestAnimationFrame(animate);
+                    } else {
+                        animatingCandies = [];
+                        resolve();
+                    }
+                }
+                animate();
+            });
+        }
+        
+        async function removeMatches(matches) {
+            // Animate the crush
+            await animateCrush(matches);
+            
+            // Remove matched candies
             matches.forEach(match => {
                 grid[match.row][match.col] = -1;
             });
+            
             score += matches.length * 10;
             updateScore();
         }
@@ -342,7 +397,6 @@
                     }
                 }
                 
-                // Fill empty spaces at top
                 for (let row = 0; row < emptySpaces; row++) {
                     grid[row][col] = Math.floor(Math.random() * CANDY_TYPES);
                 }
@@ -368,9 +422,8 @@
             while (hasMatches && iterations < 10) {
                 const matches = findMatches();
                 if (matches.length > 0) {
-                    removeMatches(matches);
-                    drawGrid();
-                    await sleep(200);
+                    await removeMatches(matches);
+                    await sleep(100);
                     dropCandies();
                     drawGrid();
                     await sleep(200);
@@ -406,6 +459,9 @@
             moves = INITIAL_MOVES;
             selectedCandy = null;
             isAnimating = false;
+            isDragging = false;
+            dragStart = null;
+            animatingCandies = [];
             document.getElementById('overlay').classList.remove('show');
             document.getElementById('gameOver').classList.remove('show');
             initGrid();
@@ -413,60 +469,133 @@
             drawGrid();
         }
         
-        canvas.addEventListener('click', async (e) => {
-            if (isAnimating || moves <= 0) return;
-            
+        function getCanvasCoords(e) {
             const rect = canvas.getBoundingClientRect();
             const scaleX = canvas.width / rect.width;
             const scaleY = canvas.height / rect.height;
             
-            const x = (e.clientX - rect.left) * scaleX;
-            const y = (e.clientY - rect.top) * scaleY;
+            let clientX, clientY;
+            if (e.touches && e.touches.length > 0) {
+                clientX = e.touches[0].clientX;
+                clientY = e.touches[0].clientY;
+            } else {
+                clientX = e.clientX;
+                clientY = e.clientY;
+            }
+            
+            const x = (clientX - rect.left) * scaleX;
+            const y = (clientY - rect.top) * scaleY;
             
             const col = Math.floor(x / CELL_SIZE);
             const row = Math.floor(y / CELL_SIZE);
             
+            return { row, col, x, y };
+        }
+        
+        // Mouse/Touch event handlers
+        canvas.addEventListener('mousedown', handleStart);
+        canvas.addEventListener('touchstart', handleStart);
+        
+        canvas.addEventListener('mousemove', handleMove);
+        canvas.addEventListener('touchmove', handleMove);
+        
+        canvas.addEventListener('mouseup', handleEnd);
+        canvas.addEventListener('touchend', handleEnd);
+        
+        canvas.addEventListener('mouseleave', handleCancel);
+        canvas.addEventListener('touchcancel', handleCancel);
+        
+        function handleStart(e) {
+            e.preventDefault();
+            if (isAnimating || moves <= 0) return;
+            
+            const { row, col } = getCanvasCoords(e);
+            
+            if (row < 0 || row >= GRID_SIZE || col < 0 || col >= GRID_SIZE) return;
+            
+            isDragging = true;
+            dragStart = { row, col };
+            selectedCandy = { row, col };
+            drawGrid();
+        }
+        
+        function handleMove(e) {
+            e.preventDefault();
+            if (!isDragging || !dragStart || isAnimating) return;
+            
+            const { row, col } = getCanvasCoords(e);
+            
+            if (row < 0 || row >= GRID_SIZE || col < 0 || col >= GRID_SIZE) return;
+            
+            // Check if moved to adjacent cell
+            if (isAdjacent(dragStart.row, dragStart.col, row, col)) {
+                handleSwap(dragStart.row, dragStart.col, row, col);
+                isDragging = false;
+                dragStart = null;
+            }
+        }
+        
+        function handleEnd(e) {
+            e.preventDefault();
+            if (!isDragging) return;
+            
+            isDragging = false;
+            dragStart = null;
+        }
+        
+        function handleCancel(e) {
+            isDragging = false;
+            dragStart = null;
+            selectedCandy = null;
+            drawGrid();
+        }
+        
+        // Click handler for non-drag interaction
+        canvas.addEventListener('click', async (e) => {
+            if (isDragging || isAnimating || moves <= 0) return;
+            
+            const { row, col } = getCanvasCoords(e);
+            
             if (row < 0 || row >= GRID_SIZE || col < 0 || col >= GRID_SIZE) return;
             
             if (!selectedCandy) {
-                selectedCandy = {row, col};
+                selectedCandy = { row, col };
                 drawGrid();
             } else {
                 if (selectedCandy.row === row && selectedCandy.col === col) {
-                    // Deselect if clicking same candy
                     selectedCandy = null;
                     drawGrid();
                     return;
                 }
                 
                 if (isAdjacent(selectedCandy.row, selectedCandy.col, row, col)) {
-                    // Swap candies
-                    swapCandies(selectedCandy.row, selectedCandy.col, row, col);
-                    drawGrid();
-                    await sleep(200);
-                    
-                    const matches = findMatches();
-                    if (matches.length > 0) {
-                        // Valid move - decrease moves counter
-                        moves--;
-                        updateScore();
-                        await processMatches();
-                    } else {
-                        // Invalid move - swap back
-                        await sleep(200);
-                        swapCandies(selectedCandy.row, selectedCandy.col, row, col);
-                        drawGrid();
-                    }
-                    selectedCandy = null;
+                    await handleSwap(selectedCandy.row, selectedCandy.col, row, col);
                 } else {
-                    // Select new candy if not adjacent
-                    selectedCandy = {row, col};
+                    selectedCandy = { row, col };
+                    drawGrid();
                 }
-                drawGrid();
             }
         });
         
-        // Polyfill for roundRect if not available
+        async function handleSwap(row1, col1, row2, col2) {
+            swapCandies(row1, col1, row2, col2);
+            selectedCandy = null;
+            drawGrid();
+            await sleep(200);
+            
+            const matches = findMatches();
+            if (matches.length > 0) {
+                moves--;
+                updateScore();
+                await processMatches();
+            } else {
+                await sleep(200);
+                swapCandies(row1, col1, row2, col2);
+                drawGrid();
+            }
+        }
+        
+        // Polyfill for roundRect
         if (!CanvasRenderingContext2D.prototype.roundRect) {
             CanvasRenderingContext2D.prototype.roundRect = function(x, y, width, height, radius) {
                 this.moveTo(x + radius, y);
