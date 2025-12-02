@@ -27,6 +27,7 @@
             padding: 30px;
             box-shadow: 0 20px 60px rgba(0,0,0,0.3);
             text-align: center;
+            max-width: 600px;
         }
         
         h1 {
@@ -41,6 +42,7 @@
             justify-content: space-around;
             margin-bottom: 20px;
             gap: 20px;
+            flex-wrap: wrap;
         }
         
         .score-item {
@@ -50,6 +52,7 @@
             border-radius: 10px;
             font-size: 1.2em;
             font-weight: bold;
+            min-width: 150px;
         }
         
         canvas {
@@ -59,6 +62,8 @@
             display: block;
             margin: 0 auto;
             background: #f0f0f0;
+            max-width: 100%;
+            height: auto;
         }
         
         .controls {
@@ -96,6 +101,7 @@
             border-radius: 20px;
             box-shadow: 0 20px 60px rgba(0,0,0,0.5);
             z-index: 1000;
+            text-align: center;
         }
         
         .game-over.show {
@@ -116,6 +122,15 @@
         .overlay.show {
             display: block;
         }
+
+        .instructions {
+            margin-top: 15px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 10px;
+            font-size: 0.9em;
+            color: #666;
+        }
     </style>
 </head>
 <body>
@@ -132,6 +147,10 @@
         </div>
         
         <canvas id="gameCanvas" width="480" height="480"></canvas>
+        
+        <div class="instructions">
+            Click on a candy, then click on an adjacent candy to swap them. Match 3 or more candies to score!
+        </div>
         
         <div class="controls">
             <button onclick="resetGame()">🔄 New Game</button>
@@ -184,7 +203,8 @@
         
         function removeInitialMatches() {
             let hasMatches = true;
-            while (hasMatches) {
+            let iterations = 0;
+            while (hasMatches && iterations < 100) {
                 hasMatches = false;
                 for (let row = 0; row < GRID_SIZE; row++) {
                     for (let col = 0; col < GRID_SIZE; col++) {
@@ -194,6 +214,7 @@
                         }
                     }
                 }
+                iterations++;
             }
         }
         
@@ -222,9 +243,13 @@
                     const y = row * CELL_SIZE;
                     const candy = grid[row][col];
                     
+                    if (candy === -1) continue;
+                    
                     // Draw candy background
                     ctx.fillStyle = candyColors[candy];
-                    ctx.fillRect(x + 2, y + 2, CELL_SIZE - 4, CELL_SIZE - 4);
+                    ctx.beginPath();
+                    ctx.roundRect(x + 3, y + 3, CELL_SIZE - 6, CELL_SIZE - 6, 8);
+                    ctx.fill();
                     
                     // Draw candy emoji
                     ctx.font = '35px Arial';
@@ -235,8 +260,10 @@
                     // Highlight selected candy
                     if (selectedCandy && selectedCandy.row === row && selectedCandy.col === col) {
                         ctx.strokeStyle = '#FFD700';
-                        ctx.lineWidth = 4;
-                        ctx.strokeRect(x + 2, y + 2, CELL_SIZE - 4, CELL_SIZE - 4);
+                        ctx.lineWidth = 5;
+                        ctx.beginPath();
+                        ctx.roundRect(x + 3, y + 3, CELL_SIZE - 6, CELL_SIZE - 6, 8);
+                        ctx.stroke();
                     }
                 }
             }
@@ -244,15 +271,27 @@
         
         function findMatches() {
             const matches = [];
+            const checked = new Set();
             
             // Check horizontal matches
             for (let row = 0; row < GRID_SIZE; row++) {
                 for (let col = 0; col < GRID_SIZE - 2; col++) {
                     const candy = grid[row][col];
-                    if (candy === grid[row][col+1] && candy === grid[row][col+2]) {
-                        matches.push({row, col});
-                        matches.push({row, col: col+1});
-                        matches.push({row, col: col+2});
+                    if (candy === -1) continue;
+                    
+                    let matchLength = 1;
+                    while (col + matchLength < GRID_SIZE && grid[row][col + matchLength] === candy) {
+                        matchLength++;
+                    }
+                    
+                    if (matchLength >= 3) {
+                        for (let i = 0; i < matchLength; i++) {
+                            const key = `${row},${col + i}`;
+                            if (!checked.has(key)) {
+                                matches.push({row, col: col + i});
+                                checked.add(key);
+                            }
+                        }
                     }
                 }
             }
@@ -261,23 +300,26 @@
             for (let col = 0; col < GRID_SIZE; col++) {
                 for (let row = 0; row < GRID_SIZE - 2; row++) {
                     const candy = grid[row][col];
-                    if (candy === grid[row+1][col] && candy === grid[row+2][col]) {
-                        matches.push({row, col});
-                        matches.push({row: row+1, col});
-                        matches.push({row: row+2, col});
+                    if (candy === -1) continue;
+                    
+                    let matchLength = 1;
+                    while (row + matchLength < GRID_SIZE && grid[row + matchLength][col] === candy) {
+                        matchLength++;
+                    }
+                    
+                    if (matchLength >= 3) {
+                        for (let i = 0; i < matchLength; i++) {
+                            const key = `${row + i},${col}`;
+                            if (!checked.has(key)) {
+                                matches.push({row: row + i, col});
+                                checked.add(key);
+                            }
+                        }
                     }
                 }
             }
             
-            // Remove duplicates
-            const uniqueMatches = [];
-            matches.forEach(match => {
-                if (!uniqueMatches.some(m => m.row === match.row && m.col === match.col)) {
-                    uniqueMatches.push(match);
-                }
-            });
-            
-            return uniqueMatches;
+            return matches;
         }
         
         function removeMatches(matches) {
@@ -321,19 +363,21 @@
         async function processMatches() {
             isAnimating = true;
             let hasMatches = true;
+            let iterations = 0;
             
-            while (hasMatches) {
+            while (hasMatches && iterations < 10) {
                 const matches = findMatches();
                 if (matches.length > 0) {
                     removeMatches(matches);
                     drawGrid();
-                    await sleep(300);
+                    await sleep(200);
                     dropCandies();
                     drawGrid();
-                    await sleep(300);
+                    await sleep(200);
                 } else {
                     hasMatches = false;
                 }
+                iterations++;
             }
             
             isAnimating = false;
@@ -373,8 +417,11 @@
             if (isAnimating || moves <= 0) return;
             
             const rect = canvas.getBoundingClientRect();
-            const x = e.clientX - rect.left;
-            const y = e.clientY - rect.top;
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            
+            const x = (e.clientX - rect.left) * scaleX;
+            const y = (e.clientY - rect.top) * scaleY;
             
             const col = Math.floor(x / CELL_SIZE);
             const row = Math.floor(y / CELL_SIZE);
@@ -385,25 +432,55 @@
                 selectedCandy = {row, col};
                 drawGrid();
             } else {
+                if (selectedCandy.row === row && selectedCandy.col === col) {
+                    // Deselect if clicking same candy
+                    selectedCandy = null;
+                    drawGrid();
+                    return;
+                }
+                
                 if (isAdjacent(selectedCandy.row, selectedCandy.col, row, col)) {
+                    // Swap candies
                     swapCandies(selectedCandy.row, selectedCandy.col, row, col);
                     drawGrid();
+                    await sleep(200);
                     
                     const matches = findMatches();
                     if (matches.length > 0) {
+                        // Valid move - decrease moves counter
                         moves--;
                         updateScore();
                         await processMatches();
                     } else {
-                        // Swap back if no matches
+                        // Invalid move - swap back
+                        await sleep(200);
                         swapCandies(selectedCandy.row, selectedCandy.col, row, col);
                         drawGrid();
                     }
+                    selectedCandy = null;
+                } else {
+                    // Select new candy if not adjacent
+                    selectedCandy = {row, col};
                 }
-                selectedCandy = null;
                 drawGrid();
             }
         });
+        
+        // Polyfill for roundRect if not available
+        if (!CanvasRenderingContext2D.prototype.roundRect) {
+            CanvasRenderingContext2D.prototype.roundRect = function(x, y, width, height, radius) {
+                this.moveTo(x + radius, y);
+                this.lineTo(x + width - radius, y);
+                this.quadraticCurveTo(x + width, y, x + width, y + radius);
+                this.lineTo(x + width, y + height - radius);
+                this.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+                this.lineTo(x + radius, y + height);
+                this.quadraticCurveTo(x, y + height, x, y + height - radius);
+                this.lineTo(x, y + radius);
+                this.quadraticCurveTo(x, y, x + radius, y);
+                this.closePath();
+            };
+        }
         
         // Initialize game
         initGrid();
