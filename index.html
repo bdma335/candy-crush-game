@@ -150,7 +150,7 @@
         <canvas id="gameCanvas" width="480" height="480"></canvas>
         
         <div class="instructions">
-            🖱️ Click or drag candies to swap them. Match 3+ candies to score!
+            🖱️ Drag candies to swap them. Match 3+ candies to score!
         </div>
         
         <div class="controls">
@@ -180,8 +180,8 @@
         let selectedCandy = null;
         let isAnimating = false;
         let isDragging = false;
-        let dragStart = null;
-        let animatingCandies = [];
+        let draggedCandy = null;
+        let particles = [];
         
         const candyColors = [
             '#FF6B6B', // Red
@@ -193,6 +193,53 @@
         ];
         
         const candyEmojis = ['🍬', '🍭', '🍫', '🍩', '🍪', '🧁'];
+        
+        class Particle {
+            constructor(x, y, color, emoji) {
+                this.x = x;
+                this.y = y;
+                this.vx = (Math.random() - 0.5) * 8;
+                this.vy = -Math.random() * 10 - 5;
+                this.gravity = 0.5;
+                this.alpha = 1;
+                this.scale = 1;
+                this.color = color;
+                this.emoji = emoji;
+                this.rotation = Math.random() * Math.PI * 2;
+                this.rotationSpeed = (Math.random() - 0.5) * 0.3;
+            }
+            
+            update() {
+                this.vy += this.gravity;
+                this.x += this.vx;
+                this.y += this.vy;
+                this.alpha -= 0.02;
+                this.scale -= 0.015;
+                this.rotation += this.rotationSpeed;
+                return this.alpha > 0 && this.scale > 0;
+            }
+            
+            draw(ctx) {
+                ctx.save();
+                ctx.globalAlpha = this.alpha;
+                ctx.translate(this.x, this.y);
+                ctx.rotate(this.rotation);
+                
+                // Draw bubble circle
+                ctx.fillStyle = this.color;
+                ctx.beginPath();
+                ctx.arc(0, 0, 20 * this.scale, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Draw emoji
+                ctx.font = `${25 * this.scale}px Arial`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(this.emoji, 0, 0);
+                
+                ctx.restore();
+            }
+        }
         
         function initGrid() {
             grid = [];
@@ -239,36 +286,21 @@
         function drawGrid() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             
+            // Draw static candies
             for (let row = 0; row < GRID_SIZE; row++) {
                 for (let col = 0; col < GRID_SIZE; col++) {
+                    // Skip if this is the dragged candy
+                    if (draggedCandy && draggedCandy.fromRow === row && draggedCandy.fromCol === col) {
+                        continue;
+                    }
+                    
                     const x = col * CELL_SIZE;
                     const y = row * CELL_SIZE;
                     const candy = grid[row][col];
                     
                     if (candy === -1) continue;
                     
-                    // Check if this candy is animating
-                    const animCandy = animatingCandies.find(a => a.row === row && a.col === col);
-                    const scale = animCandy ? animCandy.scale : 1;
-                    const alpha = animCandy ? animCandy.alpha : 1;
-                    
-                    ctx.save();
-                    ctx.globalAlpha = alpha;
-                    
-                    // Draw candy background
-                    ctx.fillStyle = candyColors[candy];
-                    ctx.beginPath();
-                    const offset = (1 - scale) * CELL_SIZE / 2;
-                    ctx.roundRect(x + 3 + offset, y + 3 + offset, (CELL_SIZE - 6) * scale, (CELL_SIZE - 6) * scale, 8);
-                    ctx.fill();
-                    
-                    // Draw candy emoji
-                    ctx.font = `${35 * scale}px Arial`;
-                    ctx.textAlign = 'center';
-                    ctx.textBaseline = 'middle';
-                    ctx.fillText(candyEmojis[candy], x + CELL_SIZE/2, y + CELL_SIZE/2);
-                    
-                    ctx.restore();
+                    drawCandy(x, y, candy, 1, 1);
                     
                     // Highlight selected candy
                     if (selectedCandy && selectedCandy.row === row && selectedCandy.col === col) {
@@ -279,6 +311,55 @@
                         ctx.stroke();
                     }
                 }
+            }
+            
+            // Draw dragged candy on top
+            if (draggedCandy) {
+                drawCandy(draggedCandy.x - CELL_SIZE/2, draggedCandy.y - CELL_SIZE/2, 
+                         draggedCandy.type, 1.1, 1);
+            }
+            
+            // Draw particles
+            particles = particles.filter(p => {
+                const alive = p.update();
+                if (alive) p.draw(ctx);
+                return alive;
+            });
+        }
+        
+        function drawCandy(x, y, candy, scale, alpha) {
+            ctx.save();
+            ctx.globalAlpha = alpha;
+            
+            const centerX = x + CELL_SIZE/2;
+            const centerY = y + CELL_SIZE/2;
+            const size = (CELL_SIZE - 6) * scale;
+            
+            // Draw candy background
+            ctx.fillStyle = candyColors[candy];
+            ctx.beginPath();
+            ctx.roundRect(centerX - size/2, centerY - size/2, size, size, 8);
+            ctx.fill();
+            
+            // Draw candy emoji
+            ctx.font = `${35 * scale}px Arial`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(candyEmojis[candy], centerX, centerY);
+            
+            ctx.restore();
+        }
+        
+        function createBurstEffect(row, col, candy) {
+            const x = col * CELL_SIZE + CELL_SIZE/2;
+            const y = row * CELL_SIZE + CELL_SIZE/2;
+            const color = candyColors[candy];
+            const emoji = candyEmojis[candy];
+            
+            // Create 8-12 particles per candy
+            const particleCount = Math.floor(Math.random() * 5) + 8;
+            for (let i = 0; i < particleCount; i++) {
+                particles.push(new Particle(x, y, color, emoji));
             }
         }
         
@@ -335,46 +416,14 @@
             return matches;
         }
         
-        async function animateCrush(matches) {
-            // Initialize animation data
-            animatingCandies = matches.map(m => ({
-                row: m.row,
-                col: m.col,
-                scale: 1,
-                alpha: 1
-            }));
-            
-            // Animate crush effect
-            const duration = 300;
-            const startTime = Date.now();
-            
-            return new Promise(resolve => {
-                function animate() {
-                    const elapsed = Date.now() - startTime;
-                    const progress = Math.min(elapsed / duration, 1);
-                    
-                    // Update animation properties
-                    animatingCandies.forEach(candy => {
-                        candy.scale = 1 - progress;
-                        candy.alpha = 1 - progress;
-                    });
-                    
-                    drawGrid();
-                    
-                    if (progress < 1) {
-                        requestAnimationFrame(animate);
-                    } else {
-                        animatingCandies = [];
-                        resolve();
-                    }
-                }
-                animate();
-            });
-        }
-        
         async function removeMatches(matches) {
-            // Animate the crush
-            await animateCrush(matches);
+            // Create burst effects for each matched candy
+            matches.forEach(match => {
+                createBurstEffect(match.row, match.col, grid[match.row][match.col]);
+            });
+            
+            // Wait for burst animation
+            await sleep(400);
             
             // Remove matched candies
             matches.forEach(match => {
@@ -423,10 +472,15 @@
                 const matches = findMatches();
                 if (matches.length > 0) {
                     await removeMatches(matches);
-                    await sleep(100);
                     dropCandies();
-                    drawGrid();
-                    await sleep(200);
+                    
+                    // Continue animation loop while particles exist
+                    const animDuration = 300;
+                    const startTime = Date.now();
+                    while (Date.now() - startTime < animDuration) {
+                        drawGrid();
+                        await sleep(16);
+                    }
                 } else {
                     hasMatches = false;
                 }
@@ -460,8 +514,8 @@
             selectedCandy = null;
             isAnimating = false;
             isDragging = false;
-            dragStart = null;
-            animatingCandies = [];
+            draggedCandy = null;
+            particles = [];
             document.getElementById('overlay').classList.remove('show');
             document.getElementById('gameOver').classList.remove('show');
             initGrid();
@@ -509,75 +563,64 @@
             e.preventDefault();
             if (isAnimating || moves <= 0) return;
             
-            const { row, col } = getCanvasCoords(e);
+            const { row, col, x, y } = getCanvasCoords(e);
             
             if (row < 0 || row >= GRID_SIZE || col < 0 || col >= GRID_SIZE) return;
             
             isDragging = true;
-            dragStart = { row, col };
+            draggedCandy = {
+                fromRow: row,
+                fromCol: col,
+                type: grid[row][col],
+                x: x,
+                y: y
+            };
             selectedCandy = { row, col };
             drawGrid();
         }
         
         function handleMove(e) {
             e.preventDefault();
-            if (!isDragging || !dragStart || isAnimating) return;
+            if (!isDragging || !draggedCandy || isAnimating) return;
             
-            const { row, col } = getCanvasCoords(e);
+            const { row, col, x, y } = getCanvasCoords(e);
             
-            if (row < 0 || row >= GRID_SIZE || col < 0 || col >= GRID_SIZE) return;
+            // Update dragged candy position
+            draggedCandy.x = x;
+            draggedCandy.y = y;
+            
+            drawGrid();
             
             // Check if moved to adjacent cell
-            if (isAdjacent(dragStart.row, dragStart.col, row, col)) {
-                handleSwap(dragStart.row, dragStart.col, row, col);
-                isDragging = false;
-                dragStart = null;
+            if (row >= 0 && row < GRID_SIZE && col >= 0 && col < GRID_SIZE) {
+                if (isAdjacent(draggedCandy.fromRow, draggedCandy.fromCol, row, col)) {
+                    handleSwap(draggedCandy.fromRow, draggedCandy.fromCol, row, col);
+                    isDragging = false;
+                    draggedCandy = null;
+                }
             }
         }
         
-        function handleEnd(e) {
+        async function handleEnd(e) {
             e.preventDefault();
-            if (!isDragging) return;
+            if (!isDragging || !draggedCandy) return;
             
+            // Snap back to original position
             isDragging = false;
-            dragStart = null;
-        }
-        
-        function handleCancel(e) {
-            isDragging = false;
-            dragStart = null;
+            draggedCandy = null;
             selectedCandy = null;
             drawGrid();
         }
         
-        // Click handler for non-drag interaction
-        canvas.addEventListener('click', async (e) => {
-            if (isDragging || isAnimating || moves <= 0) return;
-            
-            const { row, col } = getCanvasCoords(e);
-            
-            if (row < 0 || row >= GRID_SIZE || col < 0 || col >= GRID_SIZE) return;
-            
-            if (!selectedCandy) {
-                selectedCandy = { row, col };
-                drawGrid();
-            } else {
-                if (selectedCandy.row === row && selectedCandy.col === col) {
-                    selectedCandy = null;
-                    drawGrid();
-                    return;
-                }
-                
-                if (isAdjacent(selectedCandy.row, selectedCandy.col, row, col)) {
-                    await handleSwap(selectedCandy.row, selectedCandy.col, row, col);
-                } else {
-                    selectedCandy = { row, col };
-                    drawGrid();
-                }
-            }
-        });
+        function handleCancel(e) {
+            isDragging = false;
+            draggedCandy = null;
+            selectedCandy = null;
+            drawGrid();
+        }
         
         async function handleSwap(row1, col1, row2, col2) {
+            isAnimating = true;
             swapCandies(row1, col1, row2, col2);
             selectedCandy = null;
             drawGrid();
@@ -592,6 +635,7 @@
                 await sleep(200);
                 swapCandies(row1, col1, row2, col2);
                 drawGrid();
+                isAnimating = false;
             }
         }
         
@@ -611,10 +655,19 @@
             };
         }
         
+        // Animation loop for particles
+        function animate() {
+            if (particles.length > 0 || isDragging) {
+                drawGrid();
+            }
+            requestAnimationFrame(animate);
+        }
+        
         // Initialize game
         initGrid();
         updateScore();
         drawGrid();
+        animate();
     </script>
 </body>
 </html>
