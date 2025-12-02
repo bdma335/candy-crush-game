@@ -91,13 +91,7 @@
             transform: scale(0.95);
         }
         
-        .admin-btn {
-            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-            padding: 10px 20px;
-            font-size: 0.9em;
-        }
-        
-        .game-over, .admin-panel {
+        .game-over {
             display: none;
             position: fixed;
             top: 50%;
@@ -112,7 +106,7 @@
             max-width: 90%;
         }
         
-        .game-over.show, .admin-panel.show {
+        .game-over.show {
             display: block;
         }
         
@@ -140,22 +134,6 @@
             color: #666;
         }
         
-        .admin-panel input {
-            padding: 10px;
-            margin: 10px 0;
-            border: 2px solid #667eea;
-            border-radius: 5px;
-            font-size: 1em;
-            width: 200px;
-        }
-        
-        .admin-panel label {
-            display: block;
-            margin-top: 15px;
-            color: #667eea;
-            font-weight: bold;
-        }
-        
         .ad-container {
             margin: 20px 0;
             padding: 20px;
@@ -167,19 +145,8 @@
             justify-content: center;
         }
         
-        .ad-placeholder {
-            color: #999;
-            font-size: 0.9em;
-        }
-        
-        .close-btn {
-            background: #dc3545;
-            padding: 10px 20px;
-            margin-left: 10px;
-        }
-        
-        .save-btn {
-            background: #28a745;
+        .ad-container:empty {
+            display: none;
         }
         
         @media (max-width: 600px) {
@@ -211,11 +178,8 @@
             </div>
         </div>
         
-        <!-- AdSense Ad Slot (Top) -->
-        <div class="ad-container" id="topAd">
-            <!-- Replace this comment with your AdSense code -->
-            <div class="ad-placeholder">📢 Ad Space - Add your AdSense code here</div>
-        </div>
+        <!-- Top Ad Slot -->
+        <div class="ad-container" id="topAd"></div>
         
         <canvas id="gameCanvas" width="480" height="480"></canvas>
         
@@ -223,15 +187,11 @@
             🖱️ Drag candies to swap them. Match 3+ candies to score!
         </div>
         
-        <!-- AdSense Ad Slot (Bottom) -->
-        <div class="ad-container" id="bottomAd">
-            <!-- Replace this comment with your AdSense code -->
-            <div class="ad-placeholder">📢 Ad Space - Add your AdSense code here</div>
-        </div>
+        <!-- Bottom Ad Slot -->
+        <div class="ad-container" id="bottomAd"></div>
         
         <div class="controls">
             <button onclick="resetGame()">🔄 New Game</button>
-            <button class="admin-btn" onclick="openAdminPanel()">⚙️ Admin</button>
         </div>
     </div>
     
@@ -241,53 +201,48 @@
         <h2 style="color: #667eea; margin-bottom: 20px;">Game Over!</h2>
         <p style="font-size: 1.5em; margin-bottom: 20px;">Final Score: <span id="finalScore">0</span></p>
         
-        <!-- AdSense Ad Slot (Game Over) -->
-        <div class="ad-container" style="margin: 20px 0;">
-            <div class="ad-placeholder">📢 Ad Space - Game Over Ad</div>
-        </div>
+        <!-- Game Over Ad Slot -->
+        <div class="ad-container" id="gameOverAd"></div>
         
         <button onclick="resetGame()">Play Again</button>
     </div>
-    
-    <div class="admin-panel" id="adminPanel">
-        <h2 style="color: #667eea; margin-bottom: 20px;">⚙️ Admin Settings</h2>
-        
-        <label for="adminPassword">Password:</label>
-        <input type="password" id="adminPassword" placeholder="Enter admin password">
-        
-        <div id="adminControls" style="display: none;">
-            <label for="initialMoves">Initial Moves:</label>
-            <input type="number" id="initialMoves" min="1" max="100" value="30">
-            
-            <label for="gridSize">Grid Size:</label>
-            <input type="number" id="gridSize" min="6" max="10" value="8">
-            
-            <label for="candyTypes">Candy Types:</label>
-            <input type="number" id="candyTypes" min="4" max="8" value="6">
-            
-            <div style="margin-top: 20px;">
-                <button class="save-btn" onclick="saveAdminSettings()">💾 Save Settings</button>
-                <button class="close-btn" onclick="closeAdminPanel()">❌ Close</button>
-            </div>
-        </div>
-        
-        <div id="adminLogin" style="margin-top: 20px;">
-            <button onclick="verifyAdmin()">🔓 Login</button>
-            <button class="close-btn" onclick="closeAdminPanel()">❌ Cancel</button>
-        </div>
-    </div>
 
     <script>
+        // Load ads from localStorage
+        function loadAds() {
+            const topAdCode = localStorage.getItem('topAdCode');
+            const bottomAdCode = localStorage.getItem('bottomAdCode');
+            const gameOverAdCode = localStorage.getItem('gameOverAdCode');
+            
+            if (topAdCode) {
+                document.getElementById('topAd').innerHTML = topAdCode;
+            }
+            
+            if (bottomAdCode) {
+                document.getElementById('bottomAd').innerHTML = bottomAdCode;
+            }
+            
+            if (gameOverAdCode) {
+                document.getElementById('gameOverAd').innerHTML = gameOverAdCode;
+            }
+        }
+        
+        // Load ads on page load
+        loadAds();
+        
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
         
-        // Admin settings with localStorage
-        const ADMIN_PASSWORD = 'admin123'; // Change this password
+        // Load settings from localStorage
         let GRID_SIZE = parseInt(localStorage.getItem('gridSize')) || 8;
         let CANDY_TYPES = parseInt(localStorage.getItem('candyTypes')) || 6;
         let INITIAL_MOVES = parseInt(localStorage.getItem('initialMoves')) || 30;
         
         const CELL_SIZE = 60;
+        
+        // Update canvas size based on grid
+        canvas.width = GRID_SIZE * CELL_SIZE;
+        canvas.height = GRID_SIZE * CELL_SIZE;
         
         let grid = [];
         let score = 0;
@@ -348,58 +303,6 @@
                 
                 ctx.restore();
             }
-        }
-        
-        function openAdminPanel() {
-            document.getElementById('overlay').classList.add('show');
-            document.getElementById('adminPanel').classList.add('show');
-        }
-        
-        function closeAdminPanel() {
-            document.getElementById('overlay').classList.remove('show');
-            document.getElementById('adminPanel').classList.remove('show');
-            document.getElementById('adminPassword').value = '';
-            document.getElementById('adminControls').style.display = 'none';
-            document.getElementById('adminLogin').style.display = 'block';
-        }
-        
-        function verifyAdmin() {
-            const password = document.getElementById('adminPassword').value;
-            if (password === ADMIN_PASSWORD) {
-                document.getElementById('adminLogin').style.display = 'none';
-                document.getElementById('adminControls').style.display = 'block';
-                
-                // Load current settings
-                document.getElementById('initialMoves').value = INITIAL_MOVES;
-                document.getElementById('gridSize').value = GRID_SIZE;
-                document.getElementById('candyTypes').value = CANDY_TYPES;
-            } else {
-                alert('❌ Incorrect password!');
-            }
-        }
-        
-        function saveAdminSettings() {
-            const newMoves = parseInt(document.getElementById('initialMoves').value);
-            const newGridSize = parseInt(document.getElementById('gridSize').value);
-            const newCandyTypes = parseInt(document.getElementById('candyTypes').value);
-            
-            // Save to localStorage
-            localStorage.setItem('initialMoves', newMoves);
-            localStorage.setItem('gridSize', newGridSize);
-            localStorage.setItem('candyTypes', newCandyTypes);
-            
-            // Update global variables
-            INITIAL_MOVES = newMoves;
-            GRID_SIZE = newGridSize;
-            CANDY_TYPES = newCandyTypes;
-            
-            // Update canvas size
-            canvas.width = GRID_SIZE * CELL_SIZE;
-            canvas.height = GRID_SIZE * CELL_SIZE;
-            
-            alert('✅ Settings saved! Starting new game...');
-            closeAdminPanel();
-            resetGame();
         }
         
         function initGrid() {
@@ -656,6 +559,14 @@
         }
         
         function resetGame() {
+            // Reload settings in case they changed
+            GRID_SIZE = parseInt(localStorage.getItem('gridSize')) || 8;
+            CANDY_TYPES = parseInt(localStorage.getItem('candyTypes')) || 6;
+            INITIAL_MOVES = parseInt(localStorage.getItem('initialMoves')) || 30;
+            
+            canvas.width = GRID_SIZE * CELL_SIZE;
+            canvas.height = GRID_SIZE * CELL_SIZE;
+            
             score = 0;
             moves = INITIAL_MOVES;
             selectedCandy = null;
