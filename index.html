@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Candy Crush Game</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Arial', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .game-container {
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            text-align: center;
+        }
+        
+        h1 {
+            color: #667eea;
+            margin-bottom: 20px;
+            font-size: 2.5em;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .score-board {
+            display: flex;
+            justify-content: space-around;
+            margin-bottom: 20px;
+            gap: 20px;
+        }
+        
+        .score-item {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 15px 30px;
+            border-radius: 10px;
+            font-size: 1.2em;
+            font-weight: bold;
+        }
+        
+        canvas {
+            border: 4px solid #667eea;
+            border-radius: 10px;
+            cursor: pointer;
+            display: block;
+            margin: 0 auto;
+            background: #f0f0f0;
+        }
+        
+        .controls {
+            margin-top: 20px;
+        }
+        
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            font-size: 1.1em;
+            border-radius: 10px;
+            cursor: pointer;
+            margin: 5px;
+            transition: transform 0.2s;
+        }
+        
+        button:hover {
+            transform: scale(1.05);
+        }
+        
+        button:active {
+            transform: scale(0.95);
+        }
+        
+        .game-over {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            padding: 40px;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+            z-index: 1000;
+        }
+        
+        .game-over.show {
+            display: block;
+        }
+        
+        .overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.7);
+            z-index: 999;
+        }
+        
+        .overlay.show {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div class="game-container">
+        <h1>🍬 Candy Crush 🍭</h1>
+        
+        <div class="score-board">
+            <div class="score-item">
+                Score: <span id="score">0</span>
+            </div>
+            <div class="score-item">
+                Moves: <span id="moves">30</span>
+            </div>
+        </div>
+        
+        <canvas id="gameCanvas" width="480" height="480"></canvas>
+        
+        <div class="controls">
+            <button onclick="resetGame()">🔄 New Game</button>
+        </div>
+    </div>
+    
+    <div class="overlay" id="overlay"></div>
+    <div class="game-over" id="gameOver">
+        <h2 style="color: #667eea; margin-bottom: 20px;">Game Over!</h2>
+        <p style="font-size: 1.5em; margin-bottom: 20px;">Final Score: <span id="finalScore">0</span></p>
+        <button onclick="resetGame()">Play Again</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        const GRID_SIZE = 8;
+        const CELL_SIZE = 60;
+        const CANDY_TYPES = 6;
+        const INITIAL_MOVES = 30;
+        
+        let grid = [];
+        let score = 0;
+        let moves = INITIAL_MOVES;
+        let selectedCandy = null;
+        let isAnimating = false;
+        
+        const candyColors = [
+            '#FF6B6B', // Red
+            '#4ECDC4', // Cyan
+            '#45B7D1', // Blue
+            '#FFA07A', // Orange
+            '#98D8C8', // Green
+            '#F7DC6F'  // Yellow
+        ];
+        
+        const candyEmojis = ['🍬', '🍭', '🍫', '🍩', '🍪', '🧁'];
+        
+        function initGrid() {
+            grid = [];
+            for (let row = 0; row < GRID_SIZE; row++) {
+                grid[row] = [];
+                for (let col = 0; col < GRID_SIZE; col++) {
+                    grid[row][col] = Math.floor(Math.random() * CANDY_TYPES);
+                }
+            }
+            removeInitialMatches();
+        }
+        
+        function removeInitialMatches() {
+            let hasMatches = true;
+            while (hasMatches) {
+                hasMatches = false;
+                for (let row = 0; row < GRID_SIZE; row++) {
+                    for (let col = 0; col < GRID_SIZE; col++) {
+                        if (checkMatch(row, col)) {
+                            grid[row][col] = Math.floor(Math.random() * CANDY_TYPES);
+                            hasMatches = true;
+                        }
+                    }
+                }
+            }
+        }
+        
+        function checkMatch(row, col) {
+            const candy = grid[row][col];
+            
+            // Check horizontal
+            if (col >= 2 && grid[row][col-1] === candy && grid[row][col-2] === candy) {
+                return true;
+            }
+            
+            // Check vertical
+            if (row >= 2 && grid[row-1][col] === candy && grid[row-2][col] === candy) {
+                return true;
+            }
+            
+            return false;
+        }
+        
+        function drawGrid() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            for (let row = 0; row < GRID_SIZE; row++) {
+                for (let col = 0; col < GRID_SIZE; col++) {
+                    const x = col * CELL_SIZE;
+                    const y = row * CELL_SIZE;
+                    const candy = grid[row][col];
+                    
+                    // Draw candy background
+                    ctx.fillStyle = candyColors[candy];
+                    ctx.fillRect(x + 2, y + 2, CELL_SIZE - 4, CELL_SIZE - 4);
+                    
+                    // Draw candy emoji
+                    ctx.font = '35px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(candyEmojis[candy], x + CELL_SIZE/2, y + CELL_SIZE/2);
+                    
+                    // Highlight selected candy
+                    if (selectedCandy && selectedCandy.row === row && selectedCandy.col === col) {
+                        ctx.strokeStyle = '#FFD700';
+                        ctx.lineWidth = 4;
+                        ctx.strokeRect(x + 2, y + 2, CELL_SIZE - 4, CELL_SIZE - 4);
+                    }
+                }
+            }
+        }
+        
+        function findMatches() {
+            const matches = [];
+            
+            // Check horizontal matches
+            for (let row = 0; row < GRID_SIZE; row++) {
+                for (let col = 0; col < GRID_SIZE - 2; col++) {
+                    const candy = grid[row][col];
+                    if (candy === grid[row][col+1] && candy === grid[row][col+2]) {
+                        matches.push({row, col});
+                        matches.push({row, col: col+1});
+                        matches.push({row, col: col+2});
+                    }
+                }
+            }
+            
+            // Check vertical matches
+            for (let col = 0; col < GRID_SIZE; col++) {
+                for (let row = 0; row < GRID_SIZE - 2; row++) {
+                    const candy = grid[row][col];
+                    if (candy === grid[row+1][col] && candy === grid[row+2][col]) {
+                        matches.push({row, col});
+                        matches.push({row: row+1, col});
+                        matches.push({row: row+2, col});
+                    }
+                }
+            }
+            
+            // Remove duplicates
+            const uniqueMatches = [];
+            matches.forEach(match => {
+                if (!uniqueMatches.some(m => m.row === match.row && m.col === match.col)) {
+                    uniqueMatches.push(match);
+                }
+            });
+            
+            return uniqueMatches;
+        }
+        
+        function removeMatches(matches) {
+            matches.forEach(match => {
+                grid[match.row][match.col] = -1;
+            });
+            score += matches.length * 10;
+            updateScore();
+        }
+        
+        function dropCandies() {
+            for (let col = 0; col < GRID_SIZE; col++) {
+                let emptySpaces = 0;
+                for (let row = GRID_SIZE - 1; row >= 0; row--) {
+                    if (grid[row][col] === -1) {
+                        emptySpaces++;
+                    } else if (emptySpaces > 0) {
+                        grid[row + emptySpaces][col] = grid[row][col];
+                        grid[row][col] = -1;
+                    }
+                }
+                
+                // Fill empty spaces at top
+                for (let row = 0; row < emptySpaces; row++) {
+                    grid[row][col] = Math.floor(Math.random() * CANDY_TYPES);
+                }
+            }
+        }
+        
+        function swapCandies(row1, col1, row2, col2) {
+            const temp = grid[row1][col1];
+            grid[row1][col1] = grid[row2][col2];
+            grid[row2][col2] = temp;
+        }
+        
+        function isAdjacent(row1, col1, row2, col2) {
+            return (Math.abs(row1 - row2) === 1 && col1 === col2) ||
+                   (Math.abs(col1 - col2) === 1 && row1 === row2);
+        }
+        
+        async function processMatches() {
+            isAnimating = true;
+            let hasMatches = true;
+            
+            while (hasMatches) {
+                const matches = findMatches();
+                if (matches.length > 0) {
+                    removeMatches(matches);
+                    drawGrid();
+                    await sleep(300);
+                    dropCandies();
+                    drawGrid();
+                    await sleep(300);
+                } else {
+                    hasMatches = false;
+                }
+            }
+            
+            isAnimating = false;
+            checkGameOver();
+        }
+        
+        function sleep(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms));
+        }
+        
+        function updateScore() {
+            document.getElementById('score').textContent = score;
+            document.getElementById('moves').textContent = moves;
+        }
+        
+        function checkGameOver() {
+            if (moves <= 0) {
+                document.getElementById('finalScore').textContent = score;
+                document.getElementById('overlay').classList.add('show');
+                document.getElementById('gameOver').classList.add('show');
+            }
+        }
+        
+        function resetGame() {
+            score = 0;
+            moves = INITIAL_MOVES;
+            selectedCandy = null;
+            isAnimating = false;
+            document.getElementById('overlay').classList.remove('show');
+            document.getElementById('gameOver').classList.remove('show');
+            initGrid();
+            updateScore();
+            drawGrid();
+        }
+        
+        canvas.addEventListener('click', async (e) => {
+            if (isAnimating || moves <= 0) return;
+            
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            
+            const col = Math.floor(x / CELL_SIZE);
+            const row = Math.floor(y / CELL_SIZE);
+            
+            if (row < 0 || row >= GRID_SIZE || col < 0 || col >= GRID_SIZE) return;
+            
+            if (!selectedCandy) {
+                selectedCandy = {row, col};
+                drawGrid();
+            } else {
+                if (isAdjacent(selectedCandy.row, selectedCandy.col, row, col)) {
+                    swapCandies(selectedCandy.row, selectedCandy.col, row, col);
+                    drawGrid();
+                    
+                    const matches = findMatches();
+                    if (matches.length > 0) {
+                        moves--;
+                        updateScore();
+                        await processMatches();
+                    } else {
+                        // Swap back if no matches
+                        swapCandies(selectedCandy.row, selectedCandy.col, row, col);
+                        drawGrid();
+                    }
+                }
+                selectedCandy = null;
+                drawGrid();
+            }
+        });
+        
+        // Initialize game
+        initGrid();
+        updateScore();
+        drawGrid();
+    </script>
+</body>
+</html>
